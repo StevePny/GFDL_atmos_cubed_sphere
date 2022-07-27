@@ -1,4 +1,4 @@
-module FV3_SHiELD_CAP
+module fv3_shield_cap
 
   !-----------------------------------------------------------------------------
   ! Basic NUOPC Model cap
@@ -505,5 +505,5 @@ module FV3_SHiELD_CAP
 
    end subroutine coupler_init
 
-end module FV3_SHiELD_CAP
+end module fv3_shield_cap
 
