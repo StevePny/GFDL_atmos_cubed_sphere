@@ -266,6 +266,233 @@ module FV3_SHiELD_CAP
     ! End insert
       
   end subroutine
+  
+  !#######################################################################
+
+  subroutine coupler_init
+
+    !-----------------------------------------------------------------------
+    !   initialize all defined exchange grids and all boundary maps
+    !-----------------------------------------------------------------------
+    integer :: total_days, total_seconds, ierr, io
+    integer :: n, gnlon, gnlat
+    integer :: date(6), flags
+    type (time_type) :: Run_length
+    character(len=9) :: month
+    logical :: use_namelist
+
+    logical, allocatable, dimension(:,:) :: mask
+    real,    allocatable, dimension(:,:) :: glon_bnd, glat_bnd
+    character(len=:), dimension(:), allocatable :: restart_file !< Restart file saved as a string
+    integer :: time_stamp_unit !< Unit of the time_stamp file
+    integer :: ascii_unit  !< Unit of a dummy ascii file
+
+    !-----------------------------------------------------------------------
+    !----- initialization timing identifiers ----
+    !-----------------------------------------------------------------------
+
+    !----- read namelist -------
+    !----- for backwards compatibilty read from file coupler.nml -----
+
+    read(input_nml_file, nml=coupler_nml, iostat=io)
+    ierr = check_nml_error(io, 'coupler_nml')
+
+    !----- write namelist to logfile -----
+    call write_version_number (version, tag)
+    if (mpp_pe() == mpp_root_pe()) write(stdlog(),nml=coupler_nml)
+
+    !----- allocate and set the pelist (to the global pelist) -----
+    allocate( Atm%pelist  (mpp_npes()) )
+    call mpp_get_current_pelist(Atm%pelist)
+
+    !----- read restart file -----
+    if (file_exists('INPUT/coupler.res')) then
+        call ascii_read('INPUT/coupler.res', restart_file)
+        read(restart_file(1), *) calendar_type
+        read(restart_file(2), *) date_init
+        read(restart_file(3), *) date
+        deallocate(restart_file)
+    else
+        force_date_from_namelist = .true.
+    endif
+
+    !----- use namelist value (either no restart or override flag on) ---
+
+    if ( force_date_from_namelist ) then
+
+        if ( sum(current_date) <= 0 ) then
+            call error_mesg ('program coupler', 'no namelist value for current_date', FATAL)
+        else
+            date = current_date
+        endif
+
+        !----- override calendar type with namelist value -----
+
+        select case( uppercase(trim(calendar)) )
+        case( 'JULIAN' )
+            calendar_type = JULIAN
+        case( 'NOLEAP' )
+            calendar_type = NOLEAP
+        case( 'THIRTY_DAY' )
+            calendar_type = THIRTY_DAY_MONTHS
+        case( 'NO_CALENDAR' )
+            calendar_type = NO_CALENDAR
+        case default
+            call mpp_error ( FATAL, 'COUPLER_MAIN: coupler_nml entry calendar must '// &
+                                    'be one of JULIAN|NOLEAP|THIRTY_DAY|NO_CALENDAR.' )
+        end select
+
+    endif
+
+    !--- setting affinity
+!$  call fms_affinity_set('ATMOS', use_hyper_thread, atmos_nthreads)
+!$  call omp_set_num_threads(atmos_nthreads)
+
+    call set_calendar_type (calendar_type)
+
+    !----- write current/initial date actually used to logfile file -----
+
+    if ( mpp_pe() == mpp_root_pe() ) then
+        write (stdlog(),16) date(1),trim(month_name(date(2))),date(3:6)
+    endif
+
+16 format ('  current date used = ',i4,1x,a,2i3,2(':',i2.2),' gmt')
+
+    !-----------------------------------------------------------------------
+    !------ initialize diagnostics manager ------
+
+    call diag_manager_init (TIME_INIT=date)
+
+    !----- always override initial/base date with diag_manager value -----
+
+    call get_base_date ( date_init(1), date_init(2), date_init(3), date_init(4), date_init(5), date_init(6)  )
+
+    !----- use current date if no base date ------
+
+    if ( date_init(1) == 0 ) date_init = date
+
+    !----- set initial and current time types ------
+
+    Time_init  = set_date (date_init(1), date_init(2), date_init(3), date_init(4), date_init(5), date_init(6))
+
+    Time_atmos = set_date (date(1), date(2), date(3), date(4), date(5), date(6))
+
+    !-----------------------------------------------------------------------
+    !----- compute the ending time (compute days in each month first) -----
+    !-----------------------------------------------------------------------
+
+    !   (NOTE: if run length in months then starting day must be <= 28)
+
+    if ( months > 0 .and. date(3) > 28 )     &
+        call error_mesg ('program coupler',  &
+        'if run length in months then starting day must be <= 28', FATAL)
+
+    Time_end = Time_atmos
+    total_days = 0
+    do n = 1, months
+       total_days = total_days + days_in_month(Time_end)
+       Time_end = Time_atmos + set_time (0,total_days)
+    enddo
+
+    total_days    = total_days + days
+    total_seconds = hours*3600 + minutes*60 + seconds
+    Run_length    = set_time (total_seconds,total_days)
+    Time_end      = Time_atmos + Run_length
+
+    !Need to pass Time_end into diag_manager for multiple thread case.
+    call diag_manager_set_time_end(Time_end)
+
+    !-----------------------------------------------------------------------
+    !----- write time stamps (for start time and end time) ------
+    !-----------------------------------------------------------------------
+
+    if ( mpp_pe().EQ.mpp_root_pe() ) open(newunit = time_stamp_unit, file='time_stamp.out', status='replace', form='formatted')
+
+    month = month_name(date(2))
+    if ( mpp_pe() == mpp_root_pe() ) write (time_stamp_unit,20) date, month(1:3)
+
+    call get_date (Time_end, date(1), date(2), date(3), date(4), date(5), date(6))
+    month = month_name(date(2))
+    if ( mpp_pe() == mpp_root_pe() ) write (time_stamp_unit,20) date, month(1:3)
+
+    if ( mpp_pe().EQ.mpp_root_pe() ) close(time_stamp_unit)
+
+20  format (6i4,2x,a3)
+
+    !-----------------------------------------------------------------------
+    !----- compute the time steps ------
+    !-----------------------------------------------------------------------
+    
+    Time_step_atmos = set_time (dt_atmos,0)
+    Time_step_ocean = set_time (dt_ocean,0)
+    num_cpld_calls  = Run_length / Time_step_ocean
+    num_atmos_calls = Time_step_ocean / Time_step_atmos
+    Time_step_restart = set_time (restart_secs, restart_days)
+    if (restart_start_secs > 0 .or. restart_start_days > 0) then
+        Time_start_restart = set_time (restart_start_secs, restart_start_days)
+        Time_restart = Time_atmos + Time_start_restart
+    else
+        Time_restart = Time_atmos + Time_step_restart
+    end if
+    
+    Time_step_restart_aux = set_time (restart_secs_aux, restart_days_aux)
+    Time_duration_restart_aux = set_time (restart_duration_secs_aux, restart_duration_days_aux)
+    Time_start_restart_aux = set_time (restart_start_secs_aux, restart_start_days_aux)
+    Time_restart_aux = Time_atmos + Time_start_restart_aux
+    Time_restart_end_aux = Time_restart_aux + Time_duration_restart_aux
+    intrm_rst = .false.
+    intrm_rst_1step = .false.
+    if (restart_days > 0 .or. restart_secs > 0) intrm_rst = .true.
+    if (intrm_rst .and. restart_start_secs == 0 .and. &
+        restart_start_days == 0) intrm_rst_1step = .true.
+
+    !-----------------------------------------------------------------------
+    !------------------- some error checks ---------------------------------
+    !-----------------------------------------------------------------------
+
+    !----- initial time cannot be greater than current time -------
+
+    if ( Time_init > Time_atmos ) call error_mesg ('program coupler',  &
+                    'initial time is greater than current time', FATAL)
+
+    !----- make sure run length is a multiple of ocean time step ------
+
+    if ( num_cpld_calls * Time_step_ocean /= Run_length )  &
+         call error_mesg ('program coupler',  &
+         'run length must be multiple of ocean time step', FATAL)
+
+    ! ---- make sure cpld time step is a multiple of atmos time step ----
+
+    if ( num_atmos_calls * Time_step_atmos /= Time_step_ocean )  &
+         call error_mesg ('program coupler',   &
+         'atmos time step is not a multiple of the ocean time step', FATAL)
+
+    !------ initialize component models ------
+     call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos, iau_offset)
+
+     call print_memuse_stats('after atmos model init')
+
+     call mpp_get_global_domain(Atm%Domain, xsize=gnlon, ysize=gnlat)
+     
+     allocate ( glon_bnd(gnlon+1,gnlat+1), glat_bnd(gnlon+1,gnlat+1) )
+     
+     call mpp_global_field(Atm%Domain, Atm%lon_bnd, glon_bnd, position=CORNER)
+     call mpp_global_field(Atm%Domain, Atm%lat_bnd, glat_bnd, position=CORNER)
+
+     if (.NOT.Atm%bounded_domain) call data_override_init (Atm_domain_in  = Atm%domain)
+                             ! Atm_domain_in  = Atm%domain, &
+                             ! Ice_domain_in  = Ice%domain, &
+                             ! Land_domain_in = Land%domain )
+
+    !-----------------------------------------------------------------------
+    !---- open and close dummy file in restart dir to check if dir exists --
+    if (mpp_pe() == 0 ) then !one pe should do this check only in case of a nest
+        open(newunit = ascii_unit, file='RESTART/file', status='replace', form='formatted')
+        close(ascii_unit,status="delete")
+    endif
+    !-----------------------------------------------------------------------
+
+   end subroutine coupler_init
 
 end module FV3_SHiELD_CAP
 
