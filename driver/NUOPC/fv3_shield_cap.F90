@@ -16,7 +16,9 @@ module FV3_SHiELD_CAP
   !-----------------------------------------------------------------------------
 
   !-----------------------------------------------------------------------
-  ! Used by: fv3_gfsphysics/simple_coupler/coupler_main.F90
+  ! Used by: 
+  ! https://github.com/NOAA-GFDL/SHiELD_physics/blob/main/simple_coupler/coupler_main.F90
+  ! in docker container: fv3_gfsphysics/simple_coupler/coupler_main.F90
   ! program coupler_main
   !-----------------------------------------------------------------------
   !
@@ -100,10 +102,19 @@ module FV3_SHiELD_CAP
   character(len=17) :: calendar = '                 '
   logical :: force_date_from_namelist = .false.  ! override restart values for date
   integer :: months=0, days=0, hours=0, minutes=0, seconds=0
+  integer :: iau_offset = 0
   integer :: dt_atmos = 0
   integer :: dt_ocean = 0
   integer :: restart_days = 0
   integer :: restart_secs = 0
+  integer :: restart_start_days = 0
+  integer :: restart_start_secs = 0
+  integer :: restart_days_aux = 0
+  integer :: restart_secs_aux = 0
+  integer :: restart_start_days_aux = 0
+  integer :: restart_start_secs_aux = 0
+  integer :: restart_duration_days_aux = 0
+  integer :: restart_duration_secs_aux = 0
   integer :: atmos_nthreads = 1
   logical :: memuse_verbose = .false.
   logical :: use_hyper_thread = .false.
