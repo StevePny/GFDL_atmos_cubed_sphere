@@ -489,7 +489,7 @@ module fv3_shield_cap
          'atmos time step is not a multiple of the ocean time step', FATAL)
 
     !------ initialize component models ------
-     call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos, iau_offset)
+     call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos) !, iau_offset) !STEVE: needs more recent version of fv3 (main post 202204)
 
      call print_memuse_stats('after atmos model init')
 
