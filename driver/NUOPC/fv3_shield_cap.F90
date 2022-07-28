@@ -163,19 +163,36 @@ module fv3_shield_cap
       return  ! bail out
     
     ! set entry point for methods that require specific implementation
-    call NUOPC_CompSetEntryPoint(model, ESMF_METHOD_INITIALIZE, &
-      phaseLabelList=(/"IPDv04p1"/), userRoutine=AdvertiseFields, rc=rc)
+!   call NUOPC_CompSetEntryPoint(model, ESMF_METHOD_INITIALIZE, &
+!     phaseLabelList=(/"IPDv04p1"/), userRoutine=AdvertiseFields, rc=rc)
+!   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+!     line=__LINE__, &
+!     file=__FILE__)) &
+!     return  ! bail out
+!   call NUOPC_CompSetEntryPoint(model, ESMF_METHOD_INITIALIZE, &
+!     phaseLabelList=(/"IPDv04p3"/), userRoutine=RealizeFields, rc=rc)
+!   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+!     line=__LINE__, &
+!     file=__FILE__)) &
+!     return  ! bail out
+
+
+    ! attach specializing method(s)
+    call NUOPC_CompSpecialize(model, specLabel=model_label_Advertise, &
+      specRoutine=AdvertiseFields, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-    call NUOPC_CompSetEntryPoint(model, ESMF_METHOD_INITIALIZE, &
-      phaseLabelList=(/"IPDv04p3"/), userRoutine=RealizeFields, rc=rc)
+
+    ! attach specializing method(s)
+    call NUOPC_CompSpecialize(model, specLabel=model_label_RealizeProvided, &
+      specRoutine=RealizeFields, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-    
+
     ! attach specializing method(s)
     call NUOPC_CompSpecialize(model, specLabel=model_label_Advance, &
       specRoutine=ModelAdvance, rc=rc)
@@ -188,7 +205,7 @@ module fv3_shield_cap
   
   !-----------------------------------------------------------------------------
 
-  subroutine AdvertiseFields(model, importState, exportState, clock, rc)
+  subroutine AdvertiseFields(model, rc) !importState, exportState, clock, rc)
     type(ESMF_GridComp)  :: model
     type(ESMF_State)     :: importState, exportState
     type(ESMF_Clock)     :: clock
@@ -221,7 +238,7 @@ module fv3_shield_cap
   
   !-----------------------------------------------------------------------------
 
-  subroutine RealizeFields(model, importState, exportState, clock, rc)
+  subroutine RealizeFields(model, rc) !importState, exportState, clock, rc)
     type(ESMF_GridComp)  :: model
     type(ESMF_State)     :: importState, exportState
     type(ESMF_Clock)     :: clock
