@@ -500,7 +500,9 @@ module fv3_shield_cap
      call mpp_global_field(Atm%Domain, Atm%lon_bnd, glon_bnd, position=CORNER)
      call mpp_global_field(Atm%Domain, Atm%lat_bnd, glat_bnd, position=CORNER)
 
-     if (.NOT.Atm%bounded_domain) call data_override_init (Atm_domain_in  = Atm%domain)
+!    if (.NOT.Atm%bounded_domain) then !STEVE: needs more recent version of fv3 (main post 202204)
+     call data_override_init (Atm_domain_in  = Atm%domain)
+!    endif
                              ! Atm_domain_in  = Atm%domain, &
                              ! Ice_domain_in  = Ice%domain, &
                              ! Land_domain_in = Land%domain )
