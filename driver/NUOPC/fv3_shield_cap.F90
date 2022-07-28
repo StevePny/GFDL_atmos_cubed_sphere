@@ -71,6 +71,8 @@ module fv3_shield_cap
   ! Insert leading instantiations from coupler_main
   !
 
+  !-----------------------------------------------------------------------
+
   character(len=128) :: version = '$Id: coupler_main.F90,v 19.0.4.1.2.3 2014/09/09 23:51:59 Rusty.Benson Exp $'
   character(len=128) :: tag = '$Name: ulm_201505 $'
 
@@ -84,7 +86,11 @@ module fv3_shield_cap
 
   type (time_type) :: Time_atmos, Time_init, Time_end,  &
                       Time_step_atmos, Time_step_ocean, &
-                      Time_restart, Time_step_restart
+                      Time_restart, Time_step_restart,  &
+                      Time_start_restart, Time_restart_aux, &
+                      Time_step_restart_aux, Time_start_restart_aux, &
+                      Time_duration_restart_aux, Time_restart_end_aux
+
   integer :: num_cpld_calls, num_atmos_calls, nc, na, ret
 
   ! ----- coupled model initial date -----
@@ -120,13 +126,17 @@ module fv3_shield_cap
   logical :: use_hyper_thread = .false.
 
   namelist /coupler_nml/ current_date, calendar, force_date_from_namelist, &
-                         months, days, hours, minutes, seconds,  &
+                         months, days, hours, minutes, seconds, iau_offset,  &
                          dt_atmos, dt_ocean, atmos_nthreads, memuse_verbose, &
-                         use_hyper_thread, restart_secs, restart_days
+                         use_hyper_thread, restart_secs, restart_days, &
+                         restart_start_secs, restart_start_days, &
+                         restart_secs_aux, restart_days_aux, &
+                         restart_start_secs_aux, restart_start_days_aux, &
+                         restart_duration_secs_aux, restart_duration_days_aux
 
   ! ----- local variables -----
   character(len=32) :: timestamp
-  logical :: intrm_rst
+  logical :: intrm_rst, intrm_rst_1step
   
   ! End insert
   !-----------------------------------------------------------------------------
