@@ -6,6 +6,8 @@ module fv3_shield_cap
   ! NUOPC compliant model components (e.g. WW3 waves and MOM6 ocean)
   ! Following template:
   ! https://github.com/esmf-org/nuopc-app-prototypes/tree/main/AtmOcnMedProto/
+  ! Reference fv3 cap for ufs:
+  ! https://github.com/NOAA-EMC/fv3atm/blob/9743346431c46642958712690e2c2733763ce5de/fv3_cap.F90
   !-----------------------------------------------------------------------------
 
   use ESMF
