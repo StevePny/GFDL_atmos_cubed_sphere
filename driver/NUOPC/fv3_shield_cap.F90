@@ -8,13 +8,17 @@ module fv3_shield_cap
   ! https://github.com/esmf-org/nuopc-app-prototypes/tree/main/AtmOcnMedProto/
   ! Reference fv3 cap for ufs:
   ! https://github.com/NOAA-EMC/fv3atm/blob/9743346431c46642958712690e2c2733763ce5de/fv3_cap.F90
+  ! Reference for input files:
+  ! https://ufs-weather-model.readthedocs.io/en/ufs-v1.0.0/InputsOutputs.html
+  ! Reference MOM6 cap for interfacing with GFDL's FMS:
+  ! https://ncar.github.io/MOM6/APIs/mom__cap_8F90_source.html
   !-----------------------------------------------------------------------------
 
   use ESMF
   use NUOPC
   use NUOPC_Model, &
     model_routine_SS    => SetServices
-
+    
   !-----------------------------------------------------------------------------
   ! add use statements for your model's initialization
   ! and run subroutines
@@ -134,37 +138,37 @@ module fv3_shield_cap
   ! ----- local variables -----
   character(len=32) :: timestamp
   logical :: intrm_rst, intrm_rst_1step
-
+  
   ! End insert
   !-----------------------------------------------------------------------------
-
+  
   private
-
+  
   public :: SetServices
-
+  
   !-----------------------------------------------------------------------------
   !-----------------------------------------------------------------------------
   !-----------------------------------------------------------------------------
 
   contains
-
-  !-----------------------------------------------------------------------------
-  !-----------------------------------------------------------------------------
-  !-----------------------------------------------------------------------------
   
+  !-----------------------------------------------------------------------------
+  !-----------------------------------------------------------------------------
+  !-----------------------------------------------------------------------------
+
   subroutine SetServices(model, rc)
     type(ESMF_GridComp)  :: model
     integer, intent(out) :: rc
-
+    
     rc = ESMF_SUCCESS
-
+    
     ! derive from NUOPC_Model
     call NUOPC_CompDerive(model, model_routine_SS, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-
+    
     ! specialize model
     call NUOPC_CompSpecialize(model, specLabel=label_Advertise, &
       specRoutine=Advertise, rc=rc)
@@ -186,42 +190,74 @@ module fv3_shield_cap
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-
+    
     call NUOPC_CompSpecialize(model, specLabel=label_Advance, &
       specRoutine=Advance, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-
+    
   end subroutine
   
   !-----------------------------------------------------------------------------
 
-  subroutine Advertise(model, rc)
+  subroutine Advertise(model, rc) 
+! See for reference:
+! https://ncar.github.io/MOM6/APIs/mom__cap_8F90_source.html
+!   use esmf,  only: esmf_timeinterval, esmf_maxstr, esmf_vmgetcurrent
+!   use esmf,  only: esmf_vmget, esmf_timeget, esmf_timeintervalget, esmf_meshget
+!   use esmf,  only: esmf_logerr_passthru, esmf_kind_r8, esmf_rc_val_wrong
+
     type(ESMF_GridComp)  :: model
     integer, intent(out) :: rc
 
     ! local variables
     type(ESMF_State) :: importState, exportState
 
-    rc = ESMF_SUCCESS
+    ! local variables (for mpi with fms)
+    type(esmf_vm)                          :: vm
+    integer                                :: mpi_comm_fv3
+    
+    rc = ESMF_SUCCESS 
 
+    ! First get the esmf/nuopc mpi information to pass to fms
+    call ESMF_vmgetcurrent(vm, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+
+    call ESMF_vmget(vm, mpicommunicator=mpi_comm_fv3, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+    
     !-------------------------------------------------
     ! FV3-SHiELD model initialization routines:
     !-------------------------------------------------
 
     ! Start insert
-    call fms_init()
-    call mpp_init()
+    print *, "fv3_shield_cap:: calling fms_init(mpi_comm_fv3)..."
+    call fms_init(mpi_comm_fv3)
+    print *, "fv3_shield_cap:: calling mpp_init(mpi_comm_fv3)..."
+    call mpp_init(mpi_comm_fv3)
+    print *, "fv3_shield_cap:: calling mpp_clock_id..."
     initClock = mpp_clock_id( 'Initialization' )
+    print *, "fv3_shield_cap:: calling mpp_clock_begin..."
     call mpp_clock_begin (initClock) !nesting problem
 
+    print *, "fv3_shield_cap:: calling fms_init..."
     call fms_init
+    print *, "fv3_shield_cap:: calling constants_init..."
     call constants_init
+    print *, "fv3_shield_cap:: calling fms_affinity_init..."
     call fms_affinity_init
+    print *, "fv3_shield_cap:: calling fms_sat_vapor_pres_init..."
     call sat_vapor_pres_init
 
+    print *, "fv3_shield_cap:: calling coupler_init..."
     call coupler_init
     call print_memuse_stats('after coupler init')
     ! End insert
@@ -243,7 +279,7 @@ module fv3_shield_cap
     !----------
     ! Import
     !----------
-    
+
     ! importable field: wave_induced_charnock_parameter
     call NUOPC_Advertise(importState, &
     StandardName="wave_induced_charnock_parameter", name="charno", &
@@ -283,12 +319,13 @@ module fv3_shield_cap
       line=__LINE__, &
       file=__FILE__)) &
       return ! bail out
-    
+
+
   end subroutine
   
   !-----------------------------------------------------------------------------
 
-  subroutine Realize(model, rc)
+  subroutine Realize(model, rc) 
     type(ESMF_GridComp)  :: model
     integer, intent(out) :: rc
 
@@ -297,8 +334,8 @@ module fv3_shield_cap
     type(ESMF_Field)        :: field
     type(ESMF_Grid)         :: gridIn
     type(ESMF_Grid)         :: gridOut
-
-    rc = ESMF_SUCCESS
+    
+    rc = ESMF_SUCCESS  
 
     !-----------------------------------------
     ! query for importState and exportState
@@ -343,7 +380,7 @@ module fv3_shield_cap
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-      
+
     !------------------
     ! importable field: wave_z0_roughness_length
     !------------------
@@ -389,8 +426,9 @@ module fv3_shield_cap
       file=__FILE__)) &
       return  ! bail out
 
+
   end subroutine
-  
+
   !-----------------------------------------------------------------------------
 
   subroutine SetClock(model, rc)
@@ -432,7 +470,7 @@ module fv3_shield_cap
   subroutine Advance(model, rc)
     type(ESMF_GridComp)  :: model
     integer, intent(out) :: rc
-
+    
     ! local variables
     type(ESMF_Clock)            :: clock
     type(ESMF_State)            :: importState, exportState
@@ -441,7 +479,7 @@ module fv3_shield_cap
     character(len=160)          :: msgString
 
     rc = ESMF_SUCCESS
-
+    
     !-----------------------------------------
     ! query the Component for its clock, importState and exportState
     !-----------------------------------------
@@ -458,7 +496,7 @@ module fv3_shield_cap
     ! the time interval covered by a single parent timeStep will result in
     ! multiple calls to the Advance() routine. Every time the currTime
     ! will come in by one internal timeStep advanced. This goes until the
-    ! stopTime of the internal Clock has been reached. 
+    ! stopTime of the internal Clock has been reached.    
 
     !------------------
     ! Print the current time
@@ -511,11 +549,15 @@ module fv3_shield_cap
     !-----------------------------------------
     ! FV3-SHiELD model advance routines:
     !-----------------------------------------
-
+    
     ! Start insert
+    print *, "fv3_shield_cap:: model time stepping..."
     Time_atmos = Time_atmos + Time_step_atmos  !STEVE: replace with NUOPC clock
+    print *, "fv3_shield_cap:: calling update_atmos_model_dynamics..."
     call update_atmos_model_dynamics (Atm)
+    print *, "fv3_shield_cap:: calling update_atmos_radiation_physics..."
     call update_atmos_radiation_physics (Atm)
+    print *, "fv3_shield_cap:: calling update_atmos_model_state..."
     call update_atmos_model_state (Atm)
     ! End insert
       
@@ -527,6 +569,7 @@ module fv3_shield_cap
 
     !-----------------------------------------------------------------------
     !   initialize all defined exchange grids and all boundary maps
+    !   Note: This is the FMS coupler for the fv3 / land / OML components
     !-----------------------------------------------------------------------
     integer :: total_days, total_seconds, ierr, io
     integer :: n, gnlon, gnlat
@@ -548,18 +591,23 @@ module fv3_shield_cap
     !----- read namelist -------
     !----- for backwards compatibilty read from file coupler.nml -----
 
+    print *, "fv3_shield_cap::coupler_init:: reading input_nml_file..."
     read(input_nml_file, nml=coupler_nml, iostat=io)
     ierr = check_nml_error(io, 'coupler_nml')
 
     !----- write namelist to logfile -----
+    print *, "fv3_shield_cap::coupler_init:: calling write_version_number..."
     call write_version_number (version, tag)
     if (mpp_pe() == mpp_root_pe()) write(stdlog(),nml=coupler_nml)
 
     !----- allocate and set the pelist (to the global pelist) -----
+    print *, "fv3_shield_cap::coupler_init:: allocating Atm%pelist..."
     allocate( Atm%pelist  (mpp_npes()) )
+    print *, "fv3_shield_cap::coupler_init:: calling mpp_get_current_pelist(Atm%pelist)..."
     call mpp_get_current_pelist(Atm%pelist)
 
     !----- read restart file -----
+    print *, "fv3_shield_cap::coupler_init:: read INPUT/coupler.res (if it exists)..."
     if (file_exists('INPUT/coupler.res')) then
         call ascii_read('INPUT/coupler.res', restart_file)
         read(restart_file(1), *) calendar_type
@@ -602,6 +650,7 @@ module fv3_shield_cap
 !$  call fms_affinity_set('ATMOS', use_hyper_thread, atmos_nthreads)
 !$  call omp_set_num_threads(atmos_nthreads)
 
+    print *, "fv3_shield_cap::coupler_init:: calling set_calendar_type..."
     call set_calendar_type (calendar_type)
 
     !----- write current/initial date actually used to logfile file -----
@@ -615,10 +664,12 @@ module fv3_shield_cap
     !-----------------------------------------------------------------------
     !------ initialize diagnostics manager ------
 
+    print *, "fv3_shield_cap::coupler_init:: calling diag_manager_init..."
     call diag_manager_init (TIME_INIT=date)
 
     !----- always override initial/base date with diag_manager value -----
 
+    print *, "fv3_shield_cap::coupler_init:: calling get_base_date..."
     call get_base_date ( date_init(1), date_init(2), date_init(3), date_init(4), date_init(5), date_init(6)  )
 
     !----- use current date if no base date ------
@@ -627,8 +678,10 @@ module fv3_shield_cap
 
     !----- set initial and current time types ------
 
+    print *, "fv3_shield_cap::coupler_init:: calling set_date (Time_init)..."
     Time_init  = set_date (date_init(1), date_init(2), date_init(3), date_init(4), date_init(5), date_init(6))
 
+    print *, "fv3_shield_cap::coupler_init:: calling set_date (Time_atmos)..."
     Time_atmos = set_date (date(1), date(2), date(3), date(4), date(5), date(6))
 
     !-----------------------------------------------------------------------
@@ -654,6 +707,7 @@ module fv3_shield_cap
     Time_end      = Time_atmos + Run_length
 
     !Need to pass Time_end into diag_manager for multiple thread case.
+    print *, "fv3_shield_cap::coupler_init:: calling diag_manager_set_time_end..."
     call diag_manager_set_time_end(Time_end)
 
     !-----------------------------------------------------------------------
@@ -689,6 +743,7 @@ module fv3_shield_cap
         Time_restart = Time_atmos + Time_step_restart
     end if
     
+    print *, "fv3_shield_cap::coupler_init:: calling set_time(s)..."
     Time_step_restart_aux = set_time (restart_secs_aux, restart_days_aux)
     Time_duration_restart_aux = set_time (restart_duration_secs_aux, restart_duration_days_aux)
     Time_start_restart_aux = set_time (restart_start_secs_aux, restart_start_days_aux)
@@ -722,20 +777,25 @@ module fv3_shield_cap
          'atmos time step is not a multiple of the ocean time step', FATAL)
 
     !------ initialize component models ------
-     call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos) !, iau_offset) !STEVE: needs more recent version of fv3 (main post 202204)
+    print *, "fv3_shield_cap::coupler_init:: calling atmos_model_init..."
+    call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos) !, iau_offset) !STEVE: needs more recent version of fv3 (main post 202204)
 
-     call print_memuse_stats('after atmos model init')
+    print *, "fv3_shield_cap::coupler_init:: calling print_memuse_stats..."
+    call print_memuse_stats('after atmos model init')
 
-     call mpp_get_global_domain(Atm%Domain, xsize=gnlon, ysize=gnlat)
+    print *, "fv3_shield_cap::coupler_init:: calling mpp_get_global_domain..."
+    call mpp_get_global_domain(Atm%Domain, xsize=gnlon, ysize=gnlat)
      
-     allocate ( glon_bnd(gnlon+1,gnlat+1), glat_bnd(gnlon+1,gnlat+1) )
+    allocate ( glon_bnd(gnlon+1,gnlat+1), glat_bnd(gnlon+1,gnlat+1) )
      
-     call mpp_global_field(Atm%Domain, Atm%lon_bnd, glon_bnd, position=CORNER)
-     call mpp_global_field(Atm%Domain, Atm%lat_bnd, glat_bnd, position=CORNER)
+    print *, "fv3_shield_cap::coupler_init:: calling mpp_global_field (lon)..."
+    call mpp_global_field(Atm%Domain, Atm%lon_bnd, glon_bnd, position=CORNER)
+    print *, "fv3_shield_cap::coupler_init:: calling mpp_global_field (lat)..."
+    call mpp_global_field(Atm%Domain, Atm%lat_bnd, glat_bnd, position=CORNER)
 
-!    if (.NOT.Atm%bounded_domain) then !STEVE: needs more recent version of fv3 (main post 202204)
-     call data_override_init (Atm_domain_in  = Atm%domain)
-!    endif
+!   if (.NOT.Atm%bounded_domain) then !STEVE: needs more recent version of fv3 (main post 202204)
+    call data_override_init (Atm_domain_in  = Atm%domain)
+!   endif
                              ! Atm_domain_in  = Atm%domain, &
                              ! Ice_domain_in  = Ice%domain, &
                              ! Land_domain_in = Land%domain )
@@ -748,7 +808,6 @@ module fv3_shield_cap
     endif
     !-----------------------------------------------------------------------
 
-   end subroutine coupler_init
+  end subroutine coupler_init
 
 end module fv3_shield_cap
-
