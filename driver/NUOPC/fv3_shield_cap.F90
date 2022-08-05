@@ -218,6 +218,8 @@ module fv3_shield_cap
     ! local variables (for mpi with fms)
     type(esmf_vm)                          :: vm
     integer                                :: mpi_comm_fv3
+
+    logical :: dodebug = .true.
     
     rc = ESMF_SUCCESS 
 
@@ -239,25 +241,25 @@ module fv3_shield_cap
     !-------------------------------------------------
 
     ! Start insert
-    print *, "fv3_shield_cap:: calling fms_init(mpi_comm_fv3)..."
+    if (dodebug) print *, "fv3_shield_cap:: calling fms_init(mpi_comm_fv3)..."
     call fms_init(mpi_comm_fv3)
-    print *, "fv3_shield_cap:: calling mpp_init(mpi_comm_fv3)..."
+    if (dodebug) print *, "fv3_shield_cap:: calling mpp_init(mpi_comm_fv3)..."
     call mpp_init(mpi_comm_fv3)
-    print *, "fv3_shield_cap:: calling mpp_clock_id..."
+    if (dodebug) print *, "fv3_shield_cap:: calling mpp_clock_id..."
     initClock = mpp_clock_id( 'Initialization' )
-    print *, "fv3_shield_cap:: calling mpp_clock_begin..."
+    if (dodebug) print *, "fv3_shield_cap:: calling mpp_clock_begin..."
     call mpp_clock_begin (initClock) !nesting problem
 
-    print *, "fv3_shield_cap:: calling fms_init..."
+    if (dodebug) print *, "fv3_shield_cap:: calling fms_init..."
     call fms_init
-    print *, "fv3_shield_cap:: calling constants_init..."
+    if (dodebug) print *, "fv3_shield_cap:: calling constants_init..."
     call constants_init
-    print *, "fv3_shield_cap:: calling fms_affinity_init..."
+    if (dodebug) print *, "fv3_shield_cap:: calling fms_affinity_init..."
     call fms_affinity_init
-    print *, "fv3_shield_cap:: calling fms_sat_vapor_pres_init..."
+    if (dodebug) print *, "fv3_shield_cap:: calling fms_sat_vapor_pres_init..."
     call sat_vapor_pres_init
 
-    print *, "fv3_shield_cap:: calling coupler_init..."
+    if (dodebug) print *, "fv3_shield_cap:: calling coupler_init..."
     call coupler_init
     call print_memuse_stats('after coupler init')
     ! End insert
@@ -348,12 +350,31 @@ module fv3_shield_cap
 
     !-----------------------------------------
     ! create a Grid object for Fields
+    ! https://earthsystemmodeling.org/docs/release/ESMF_8_3_0/ESMC_crefdoc/node5.html
+    ! https://earthsystemmodeling.org/docs/release/ESMF_8_3_0/ESMC_crefdoc/node5.html#SECTION05051000000000000000
     !-----------------------------------------
-    gridIn = ESMF_GridCreateNoPeriDimUfrm(maxIndex=(/100, 20/), &
-      minCornerCoord=(/10._ESMF_KIND_R8, 20._ESMF_KIND_R8/), &
-      maxCornerCoord=(/100._ESMF_KIND_R8, 200._ESMF_KIND_R8/), &
-      coordSys=ESMF_COORDSYS_CART, staggerLocList=(/ESMF_STAGGERLOC_CENTER/), &
-      rc=rc)
+!   gridIn = ESMF_GridCreateNoPeriDimUfrm(maxIndex=(/100, 20/), &
+!     minCornerCoord=(/10._ESMF_KIND_R8, 20._ESMF_KIND_R8/), &
+!     maxCornerCoord=(/100._ESMF_KIND_R8, 200._ESMF_KIND_R8/), &
+!     coordSys=ESMF_COORDSYS_CART, staggerLocList=(/ESMF_STAGGERLOC_CENTER/), &
+!     rc=rc)
+
+    ! https://earthsystemmodeling.org/docs/release/latest/ESMF_refdoc/node5.html#SECTION050862700000000000000
+    ! Create a six-tile ESMF_Grid for a Cubed Sphere grid using regular decomposition. 
+    ! Each tile can have different decomposition. The grid coordinates are generated 
+    ! based on the algorithm used by GEOS-5, The tile resolution is defined by tileSize.
+
+!   gridIn = ESMF_GridCreateCubedSphereReg(tileSize=6,           &
+!              regDecompPTile=1, decompflagPTile=,                        &
+!              coordSys, coordTypeKind,                                &
+!              deLabelList, staggerLocList,                            &
+!              delayout, indexflag, name, transformArgs, rc)
+
+    ! Use the existing grid_spec.nc mosaic to get the grid definition
+    ! https://earthsystemmodeling.org/docs/release/latest/ESMF_refdoc/node5.html#SECTION050862900000000000000
+    ! function ESMF_GridCreateMosaicReg(filename,regDecompPTile, decompflagPTile, &
+    !    coordTypeKind, deLabelList, staggerLocList, delayout, indexflag, name, tileFilePath, rc)
+    gridIn = ESMF_GridCreateMosaic(filename='INPUT/C96_mosaic.nc', name='fv3-shield-grid', tileFilePath='INPUT/', rc=rc)
 
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -478,6 +499,8 @@ module fv3_shield_cap
     type(ESMF_TimeInterval)     :: timeStep
     character(len=160)          :: msgString
 
+    logical :: dodebug = .true.
+
     rc = ESMF_SUCCESS
     
     !-----------------------------------------
@@ -551,13 +574,13 @@ module fv3_shield_cap
     !-----------------------------------------
     
     ! Start insert
-    print *, "fv3_shield_cap:: model time stepping..."
+    if (dodebug) print *, "fv3_shield_cap:: model time stepping..."
     Time_atmos = Time_atmos + Time_step_atmos  !STEVE: replace with NUOPC clock
-    print *, "fv3_shield_cap:: calling update_atmos_model_dynamics..."
+    if (dodebug) print *, "fv3_shield_cap:: calling update_atmos_model_dynamics..."
     call update_atmos_model_dynamics (Atm)
-    print *, "fv3_shield_cap:: calling update_atmos_radiation_physics..."
+    if (dodebug) print *, "fv3_shield_cap:: calling update_atmos_radiation_physics..."
     call update_atmos_radiation_physics (Atm)
-    print *, "fv3_shield_cap:: calling update_atmos_model_state..."
+    if (dodebug) print *, "fv3_shield_cap:: calling update_atmos_model_state..."
     call update_atmos_model_state (Atm)
     ! End insert
       
@@ -584,6 +607,8 @@ module fv3_shield_cap
     integer :: time_stamp_unit !< Unit of the time_stamp file
     integer :: ascii_unit  !< Unit of a dummy ascii file
 
+    logical :: dodebug = .true.
+
     !-----------------------------------------------------------------------
     !----- initialization timing identifiers ----
     !-----------------------------------------------------------------------
@@ -591,23 +616,23 @@ module fv3_shield_cap
     !----- read namelist -------
     !----- for backwards compatibilty read from file coupler.nml -----
 
-    print *, "fv3_shield_cap::coupler_init:: reading input_nml_file..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: reading input_nml_file..."
     read(input_nml_file, nml=coupler_nml, iostat=io)
     ierr = check_nml_error(io, 'coupler_nml')
 
     !----- write namelist to logfile -----
-    print *, "fv3_shield_cap::coupler_init:: calling write_version_number..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling write_version_number..."
     call write_version_number (version, tag)
     if (mpp_pe() == mpp_root_pe()) write(stdlog(),nml=coupler_nml)
 
     !----- allocate and set the pelist (to the global pelist) -----
-    print *, "fv3_shield_cap::coupler_init:: allocating Atm%pelist..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: allocating Atm%pelist..."
     allocate( Atm%pelist  (mpp_npes()) )
-    print *, "fv3_shield_cap::coupler_init:: calling mpp_get_current_pelist(Atm%pelist)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling mpp_get_current_pelist(Atm%pelist)..."
     call mpp_get_current_pelist(Atm%pelist)
 
     !----- read restart file -----
-    print *, "fv3_shield_cap::coupler_init:: read INPUT/coupler.res (if it exists)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: read INPUT/coupler.res (if it exists)..."
     if (file_exists('INPUT/coupler.res')) then
         call ascii_read('INPUT/coupler.res', restart_file)
         read(restart_file(1), *) calendar_type
@@ -650,7 +675,7 @@ module fv3_shield_cap
 !$  call fms_affinity_set('ATMOS', use_hyper_thread, atmos_nthreads)
 !$  call omp_set_num_threads(atmos_nthreads)
 
-    print *, "fv3_shield_cap::coupler_init:: calling set_calendar_type..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling set_calendar_type..."
     call set_calendar_type (calendar_type)
 
     !----- write current/initial date actually used to logfile file -----
@@ -664,12 +689,12 @@ module fv3_shield_cap
     !-----------------------------------------------------------------------
     !------ initialize diagnostics manager ------
 
-    print *, "fv3_shield_cap::coupler_init:: calling diag_manager_init..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling diag_manager_init..."
     call diag_manager_init (TIME_INIT=date)
 
     !----- always override initial/base date with diag_manager value -----
 
-    print *, "fv3_shield_cap::coupler_init:: calling get_base_date..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling get_base_date..."
     call get_base_date ( date_init(1), date_init(2), date_init(3), date_init(4), date_init(5), date_init(6)  )
 
     !----- use current date if no base date ------
@@ -678,10 +703,10 @@ module fv3_shield_cap
 
     !----- set initial and current time types ------
 
-    print *, "fv3_shield_cap::coupler_init:: calling set_date (Time_init)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling set_date (Time_init)..."
     Time_init  = set_date (date_init(1), date_init(2), date_init(3), date_init(4), date_init(5), date_init(6))
 
-    print *, "fv3_shield_cap::coupler_init:: calling set_date (Time_atmos)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling set_date (Time_atmos)..."
     Time_atmos = set_date (date(1), date(2), date(3), date(4), date(5), date(6))
 
     !-----------------------------------------------------------------------
@@ -707,7 +732,7 @@ module fv3_shield_cap
     Time_end      = Time_atmos + Run_length
 
     !Need to pass Time_end into diag_manager for multiple thread case.
-    print *, "fv3_shield_cap::coupler_init:: calling diag_manager_set_time_end..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling diag_manager_set_time_end..."
     call diag_manager_set_time_end(Time_end)
 
     !-----------------------------------------------------------------------
@@ -743,7 +768,7 @@ module fv3_shield_cap
         Time_restart = Time_atmos + Time_step_restart
     end if
     
-    print *, "fv3_shield_cap::coupler_init:: calling set_time(s)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling set_time(s)..."
     Time_step_restart_aux = set_time (restart_secs_aux, restart_days_aux)
     Time_duration_restart_aux = set_time (restart_duration_secs_aux, restart_duration_days_aux)
     Time_start_restart_aux = set_time (restart_start_secs_aux, restart_start_days_aux)
@@ -777,20 +802,20 @@ module fv3_shield_cap
          'atmos time step is not a multiple of the ocean time step', FATAL)
 
     !------ initialize component models ------
-    print *, "fv3_shield_cap::coupler_init:: calling atmos_model_init..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling atmos_model_init..."
     call  atmos_model_init (Atm,  Time_init, Time_atmos, Time_step_atmos) !, iau_offset) !STEVE: needs more recent version of fv3 (main post 202204)
 
-    print *, "fv3_shield_cap::coupler_init:: calling print_memuse_stats..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling print_memuse_stats..."
     call print_memuse_stats('after atmos model init')
 
-    print *, "fv3_shield_cap::coupler_init:: calling mpp_get_global_domain..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling mpp_get_global_domain..."
     call mpp_get_global_domain(Atm%Domain, xsize=gnlon, ysize=gnlat)
      
     allocate ( glon_bnd(gnlon+1,gnlat+1), glat_bnd(gnlon+1,gnlat+1) )
      
-    print *, "fv3_shield_cap::coupler_init:: calling mpp_global_field (lon)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling mpp_global_field (lon)..."
     call mpp_global_field(Atm%Domain, Atm%lon_bnd, glon_bnd, position=CORNER)
-    print *, "fv3_shield_cap::coupler_init:: calling mpp_global_field (lat)..."
+    if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling mpp_global_field (lat)..."
     call mpp_global_field(Atm%Domain, Atm%lat_bnd, glat_bnd, position=CORNER)
 
 !   if (.NOT.Atm%bounded_domain) then !STEVE: needs more recent version of fv3 (main post 202204)
