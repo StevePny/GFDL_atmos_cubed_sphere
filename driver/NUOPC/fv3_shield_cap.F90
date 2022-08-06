@@ -197,6 +197,14 @@ module fv3_shield_cap
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
+
+    !STEVE adding:
+    call NUOPC_CompSpecialize(model, specLabel=label_Finalize, &
+      specRoutine=Finalize, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
     
   end subroutine
   
@@ -251,7 +259,7 @@ module fv3_shield_cap
     call mpp_clock_begin (initClock) !nesting problem
 
     if (dodebug) print *, "fv3_shield_cap:: calling fms_init..."
-    call fms_init
+    call fms_init(mpi_comm_fv3)
     if (dodebug) print *, "fv3_shield_cap:: calling constants_init..."
     call constants_init
     if (dodebug) print *, "fv3_shield_cap:: calling fms_affinity_init..."
@@ -583,8 +591,92 @@ module fv3_shield_cap
     if (dodebug) print *, "fv3_shield_cap:: calling update_atmos_model_state..."
     call update_atmos_model_state (Atm)
     ! End insert
+
+
+    !--- intermediate restart
+    if (intrm_rst) then
+      if (nc /= num_cpld_calls) then
+        if (intrm_rst_1step .and. nc == 1) then
+          timestamp = date_to_string (Time_atmos)
+          call atmos_model_restart(Atm, timestamp)
+          call coupler_res(timestamp)
+        endif
+        if (Time_atmos == Time_restart .or. Time_atmos == Time_restart_aux) then
+          if (Time_atmos == Time_restart) then
+            timestamp = date_to_string (Time_restart)
+          else
+            timestamp = date_to_string (Time_restart_aux)
+          endif
+          call atmos_model_restart(Atm, timestamp)
+          call coupler_res(timestamp)
+          if (Time_atmos == Time_restart) &
+              Time_restart = Time_restart + Time_step_restart
+          if ((restart_secs_aux > 0 .or. restart_days_aux > 0) .and. &
+              Time_atmos == Time_restart_aux .and. &
+              Time_restart_aux < Time_restart_end_aux) then
+            Time_restart_aux = Time_restart_aux + Time_step_restart_aux
+          endif
+        endif
+      endif
+    endif
+
+    call print_memuse_stats('after full step')
       
   end subroutine
+
+
+  !-----------------------------------------------------------------------------
+
+  subroutine Finalize(model, rc)
+
+    ! input arguments
+    type(ESMF_GridComp)  :: model
+    integer, intent(out)       :: rc
+
+    ! local variables
+    character(len=*),parameter :: subname='(fv3_shield_cap::Finalize)'
+    integer                    :: i, urc
+    type(ESMF_VM)              :: vm
+    real(kind=8)               :: MPI_Wtime, timeffs
+  !
+  !-----------------------------------------------------------------------------
+  !*** finialize forecast
+
+    timeffs = MPI_Wtime()
+    rc = ESMF_SUCCESS
+!
+    call ESMF_GridCompGet(model,vm=vm,rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+            line=__LINE__, &
+            file=__FILE__)) return
+
+!   call ESMF_StateDestroy(fcstState, rc=rc)
+!   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+!           line=__LINE__, 
+!           file=__FILE__)) return
+!   call ESMF_GridCompDestroy(fcstComp, rc=rc)
+!   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+!           line=__LINE__, 
+!           file=__FILE__)) return
+!
+!   if(mype==0)print *,' wrt grid comp destroy time=',MPI_Wtime()-timeffs
+
+
+    !-----------------------------------------------------------------------
+
+    call mpp_set_current_pelist()
+    call mpp_clock_end(mainClock)
+    call mpp_clock_begin(termClock)
+
+    call coupler_end
+    call mpp_set_current_pelist()
+    call mpp_clock_end(termClock)
+
+    call fms_end
+
+    !-----------------------------------------------------------------------
+
+  end subroutine Finalize
   
   !#######################################################################
 
@@ -834,5 +926,74 @@ module fv3_shield_cap
     !-----------------------------------------------------------------------
 
   end subroutine coupler_init
+
+  !#######################################################################
+   subroutine coupler_res(timestamp)
+    character(len=32), intent(in) :: timestamp
+
+    integer :: date(6)
+    integer :: restart_unit !< Unit for the coupler restart file
+
+!----- compute current date ------
+
+      call get_date (Time_atmos, date(1), date(2), date(3),  &
+                                 date(4), date(5), date(6))
+
+!----- write restart file ------
+    call mpp_set_current_pelist()
+    if (mpp_pe() == mpp_root_pe())then
+        open(newunit = restart_unit, file='RESTART/'//trim(timestamp)//'.coupler.res', status='replace', form='formatted')
+        write(restart_unit, '(i6,8x,a)' )calendar_type, &
+             '(Calendar: no_calendar=0, thirty_day_months=1, julian=2, gregorian=3, noleap=4)'
+
+        write(restart_unit, '(6i6,8x,a)' )date_init, &
+             'Model start time:   year, month, day, hour, minute, second'
+        write(restart_unit, '(6i6,8x,a)' )date, &
+             'Current model time: year, month, day, hour, minute, second'
+        close(restart_unit)
+    endif
+   end subroutine coupler_res
+
+!#######################################################################
+
+   subroutine coupler_end
+
+   integer :: date(6)
+   integer :: restart_unit !< Unit for the coupler restart file
+!-----------------------------------------------------------------------
+
+      call atmos_model_end (Atm)
+
+!----- compute current date ------
+
+      call get_date (Time_atmos, date(1), date(2), date(3),  &
+                                 date(4), date(5), date(6))
+
+!----- check time versus expected ending time ----
+
+      if (Time_atmos /= Time_end) call error_mesg ('program coupler',  &
+              'final time does not match expected ending time', WARNING)
+
+!----- write restart file ------
+    call mpp_set_current_pelist()
+    if (mpp_pe() == mpp_root_pe())then
+        open(newunit = restart_unit, file='RESTART/coupler.res', status='replace', form='formatted')
+        write(restart_unit, '(i6,8x,a)' )calendar_type, &
+             '(Calendar: no_calendar=0, thirty_day_months=1, julian=2, gregorian=3, noleap=4)'
+
+        write(restart_unit, '(6i6,8x,a)' )date_init, &
+             'Model start time:   year, month, day, hour, minute, second'
+        write(restart_unit, '(6i6,8x,a)' )date, &
+             'Current model time: year, month, day, hour, minute, second'
+        close(restart_unit)
+    endif
+
+!----- final output of diagnostic fields ----
+
+   call diag_manager_end (Time_atmos)
+
+!-----------------------------------------------------------------------
+
+   end subroutine coupler_end
 
 end module fv3_shield_cap
