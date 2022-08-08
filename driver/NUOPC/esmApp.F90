@@ -1,17 +1,7 @@
-!==============================================================================
-! Earth System Modeling Framework
-! Copyright 2002-2022, University Corporation for Atmospheric Research,
-! Massachusetts Institute of Technology, Geophysical Fluid Dynamics
-! Laboratory, University of Michigan, National Centers for Environmental
-! Prediction, Los Alamos National Laboratory, Argonne National Laboratory,
-! NASA Goddard Space Flight Center.
-! Licensed under the University of Illinois-NCSA License.
-!==============================================================================
-
 program esmApp
 
   !-----------------------------------------------------------------------------
-  ! Generic ESM application driver
+  ! ESM application driver for coupled FV3-SHiELD atmos / WW3 wave modeling system
   !-----------------------------------------------------------------------------
 
   use ESMF
@@ -65,7 +55,7 @@ program esmApp
     file=__FILE__)) &
     call ESMF_Finalize(endflag=ESMF_END_ABORT)
 
-  ! Call Run  for earth the system Component
+  ! Call Run for the coupled Earth System Modeling Component
   call ESMF_GridCompRun(esmComp, userRc=urc, rc=rc)
   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
     line=__LINE__, &
@@ -76,7 +66,7 @@ program esmApp
     file=__FILE__)) &
     call ESMF_Finalize(endflag=ESMF_END_ABORT)
 
-  ! Call Finalize for the earth system Component
+  ! Call Finalize for the coupled Earth System Modeling Component
   call ESMF_GridCompFinalize(esmComp, userRc=urc, rc=rc)
   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
     line=__LINE__, &
@@ -87,7 +77,7 @@ program esmApp
     file=__FILE__)) &
     call ESMF_Finalize(endflag=ESMF_END_ABORT)
 
-  ! Destroy the earth system Component
+  ! Destroy the coupled Earth System Modeling Component
   call ESMF_GridCompDestroy(esmComp, rc=rc)
   if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
     line=__LINE__, &
