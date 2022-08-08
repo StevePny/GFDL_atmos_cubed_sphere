@@ -1,17 +1,8 @@
-!==============================================================================
-! Earth System Modeling Framework
-! Copyright 2002-2022, University Corporation for Atmospheric Research,
-! Massachusetts Institute of Technology, Geophysical Fluid Dynamics
-! Laboratory, University of Michigan, National Centers for Environmental
-! Prediction, Los Alamos National Laboratory, Argonne National Laboratory,
-! NASA Goddard Space Flight Center.
-! Licensed under the University of Illinois-NCSA License.
-!==============================================================================
-
 module ESM
 
   !-----------------------------------------------------------------------------
-  ! Code that specializes generic ESM Component code.
+  ! Specializes generic ESM Component to make a coupled driver for
+  ! the FV3-SHiELD / WW3 atmosphere-wave coupled model
   !-----------------------------------------------------------------------------
 
   use ESMF
@@ -20,7 +11,7 @@ module ESM
     driverSS             => SetServices
 
   use ATM, only: atmSS => SetServices
-  use OCN, only: ocnSS => SetServices
+  use WAV, only: wavSS => SetServices
   use MED, only: medSS => SetServices
 
   use NUOPC_Connector, only: cplSS => SetServices
@@ -98,8 +89,8 @@ module ESM
       file=__FILE__)) &
       return  ! bail out
 
-    ! SetServices for OCN
-    call NUOPC_DriverAddComp(driver, "OCN", ocnSS, comp=child, rc=rc)
+    ! SetServices for WAV
+    call NUOPC_DriverAddComp(driver, "WAV", wavSS, comp=child, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
@@ -128,12 +119,12 @@ module ESM
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-    call ESMF_TimeSet(startTime, yy=2010, mm=6, dd=1, h=0, m=0, rc=rc)
+    call ESMF_TimeSet(startTime, yy=2020, mm=8, dd=26, h=12, m=0, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-    call ESMF_TimeSet(stopTime, yy=2010, mm=6, dd=1, h=1, m=0, rc=rc)
+    call ESMF_TimeSet(stopTime, yy=2020, mm=8, dd=26, h=18, m=7, s=30, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
@@ -173,12 +164,12 @@ module ESM
     runSeqFF = NUOPC_FreeFormatCreate(stringList=(/ &
       " @*            ",    &
       "   ATM -> MED  ",    &
-      "   OCN -> MED  ",    &
+      "   WAV -> MED  ",    &
       "   MED         ",    &
       "   MED -> ATM  ",    &
-      "   MED -> OCN  ",    &
+      "   MED -> WAV  ",    &
       "   ATM         ",    &
-      "   OCN         ",    &
+      "   WAV         ",    &
       " @             " /), &
       rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
