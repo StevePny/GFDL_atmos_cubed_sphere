@@ -1,17 +1,7 @@
-!==============================================================================
-! Earth System Modeling Framework
-! Copyright 2002-2022, University Corporation for Atmospheric Research,
-! Massachusetts Institute of Technology, Geophysical Fluid Dynamics
-! Laboratory, University of Michigan, National Centers for Environmental
-! Prediction, Los Alamos National Laboratory, Argonne National Laboratory,
-! NASA Goddard Space Flight Center.
-! Licensed under the University of Illinois-NCSA License.
-!==============================================================================
-
 module MED
 
   !-----------------------------------------------------------------------------
-  ! Mediator Component.
+  ! Mediator Component for coupled FV3-Shield atmosphere and WW3 wave models.
   !-----------------------------------------------------------------------------
 
   use ESMF
@@ -82,55 +72,79 @@ module MED
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
+      
+    !----------
+    ! Import
+    !----------
 
-    ! importable field: sea_surface_temperature
+    ! importable field: wave_induced_charnock_parameter
     call NUOPC_Advertise(importState, &
-      StandardName="sea_surface_temperature", name="sst", rc=rc)
+    StandardName="wave_induced_charnock_parameter", name="charno", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
-      return  ! bail out
+      return ! bail out
 
-    ! importable field: air_pressure_at_sea_level
+    ! importable field: wave_z0_roughness_length
     call NUOPC_Advertise(importState, &
-      StandardName="air_pressure_at_sea_level", name="pmsl", rc=rc)
+    StandardName="wave_z0_roughness_length", name="z0rlen", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
-      return  ! bail out
+      return ! bail out
 
-    ! importable field: surface_net_downward_shortwave_flux
+    ! importable field: eastward_wind_at_10m_height
     call NUOPC_Advertise(importState, &
-      StandardName="surface_net_downward_shortwave_flux", name="rsns", rc=rc)
+      StandardName="eastward_wind_at_10m_height", name="u10m", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
 
-    ! exportable field: sea_surface_temperature
+    ! importable field: northward_wind_at_10m_height
+    call NUOPC_Advertise(importState, &
+      StandardName="northward_wind_at_10m_height", name="v10m", rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+
+    !----------
+    ! Export
+    !----------
+    
+    ! exportable field: wave_induced_charnock_parameter
     call NUOPC_Advertise(exportState, &
-      StandardName="sea_surface_temperature", name="sst", rc=rc)
+    StandardName="wave_induced_charnock_parameter", name="charno", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
-      return  ! bail out
+      return ! bail out
 
-    ! exportable field: air_pressure_at_sea_level
+    ! exportable field: wave_z0_roughness_length
     call NUOPC_Advertise(exportState, &
-      StandardName="air_pressure_at_sea_level", name="pmsl", rc=rc)
+    StandardName="wave_z0_roughness_length", name="z0rlen", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
-      return  ! bail out
+      return ! bail out
 
-    ! exportable field: surface_net_downward_shortwave_flux
+    ! exportable field: eastward_wind_at_10m_height
     call NUOPC_Advertise(exportState, &
-      StandardName="surface_net_downward_shortwave_flux", name="rsns", rc=rc)
+    StandardName="eastward_wind_at_10m_height", name="u10m", rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
-      return  ! bail out
+      return ! bail out
 
+    ! exportable field: northward_wind_at_10m_height
+    call NUOPC_Advertise(exportState, &
+    StandardName="northward_wind_at_10m_height", name="v10m", rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return ! bail out
+      
   end subroutine
 
   !-----------------------------------------------------------------------------
@@ -142,8 +156,8 @@ module MED
     ! local variables
     type(ESMF_State)        :: importState, exportState
     type(ESMF_Field)        :: field
-    type(ESMF_Grid)         :: gridIn
-    type(ESMF_Grid)         :: gridOut
+    type(ESMF_Grid)         :: grid_atmos
+    type(ESMF_Grid)         :: grid_wave
 
     rc = ESMF_SUCCESS
 
@@ -156,19 +170,25 @@ module MED
       return  ! bail out
 
     ! create a Grid object for Fields
-    gridIn = ESMF_GridCreateNoPeriDimUfrm(maxIndex=(/20, 200/), &
-      minCornerCoord=(/10._ESMF_KIND_R8, 20._ESMF_KIND_R8/), &
-      maxCornerCoord=(/100._ESMF_KIND_R8, 200._ESMF_KIND_R8/), &
-      coordSys=ESMF_COORDSYS_CART, staggerLocList=(/ESMF_STAGGERLOC_CENTER/), &
-      rc=rc)
+    grid_atmos = ESMF_GridCreateMosaic(filename='INPUT/C96_mosaic.nc', name='fv3-shield-grid', tileFilePath='INPUT/', rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
-    gridOut = gridIn ! for now out same as in
+      
+    !STEVE: update with WW3 grid, for now copying FV3-SHiELD...
+    grid_wave = ESMF_GridCreateMosaic(filename='INPUT/C96_mosaic.nc', name='fv3-shield-grid', tileFilePath='INPUT/', rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+    
+    !----------
+    ! Import
+    !----------
 
-    ! importable field: sea_surface_temperature
-    field = ESMF_FieldCreate(name="sst", grid=gridIn, &
+    ! importable field: wave_induced_charnock_parameter
+    field = ESMF_FieldCreate(name="charno", grid=grid_wave, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -180,8 +200,8 @@ module MED
       file=__FILE__)) &
       return  ! bail out
 
-    ! importable field: air_pressure_at_sea_level
-    field = ESMF_FieldCreate(name="pmsl", grid=gridIn, &
+    ! importable field: wave_z0_roughness_length
+    field = ESMF_FieldCreate(name="z0rlen", grid=grid_wave, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -193,8 +213,8 @@ module MED
       file=__FILE__)) &
       return  ! bail out
 
-    ! importable field: surface_net_downward_shortwave_flux
-    field = ESMF_FieldCreate(name="rsns", grid=gridIn, &
+    ! importable field: eastward_wind_at_10m_height
+    field = ESMF_FieldCreate(name="u10m", grid=grid_atmos, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -205,9 +225,26 @@ module MED
       line=__LINE__, &
       file=__FILE__)) &
       return  ! bail out
+      
+    ! importable field: northward_wind_at_10m_height
+    field = ESMF_FieldCreate(name="v10m", grid=grid_atmos, &
+      typekind=ESMF_TYPEKIND_R8, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+    call NUOPC_Realize(importState, field=field, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+      
+    !----------
+    ! Export
+    !----------
 
-    ! exportable field: sea_surface_temperature
-    field = ESMF_FieldCreate(name="sst", grid=gridOut, &
+    ! exportable field: wave_induced_charnock_parameter
+    field = ESMF_FieldCreate(name="charno", grid=grid_wave, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -219,8 +256,8 @@ module MED
       file=__FILE__)) &
       return  ! bail out
 
-    ! exportable field: air_pressure_at_sea_level
-    field = ESMF_FieldCreate(name="pmsl", grid=gridOut, &
+    ! exportable field: wave_z0_roughness_length
+    field = ESMF_FieldCreate(name="z0rlen", grid=grid_wave, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -232,8 +269,21 @@ module MED
       file=__FILE__)) &
       return  ! bail out
 
-    ! exportable field: surface_net_downward_shortwave_flux
-    field = ESMF_FieldCreate(name="rsns", grid=gridOut, &
+    ! exportable field: eastward_wind_at_10m_height
+    field = ESMF_FieldCreate(name="u10m", grid=gridOut, &
+      typekind=ESMF_TYPEKIND_R8, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+    call NUOPC_Realize(exportState, field=field, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+      
+    ! exportable field: northward_wind_at_10m_height
+    field = ESMF_FieldCreate(name="v10m", grid=gridOut, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
