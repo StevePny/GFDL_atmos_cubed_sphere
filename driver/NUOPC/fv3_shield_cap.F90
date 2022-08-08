@@ -481,7 +481,9 @@ module fv3_shield_cap
     ! here: parent Clock and stability timeStep determine actual model timeStep
     !TODO: stabilityTimeStep should be read in from configuation
     !TODO: or computed from internal Grid information
-    call ESMF_TimeIntervalSet(stabilityTimeStep, m=5, rc=rc) ! 5 minute steps
+    !STEVE: does this set a maximum timestep?
+    !       https://earthsystemmodeling.org/docs/release/ESMF_8_3_0/NUOPC_refdoc/node4.html#SECTION000463000000000000000
+    call ESMF_TimeIntervalSet(stabilityTimeStep, m=15, rc=rc) ! 15 minute maximum time steps
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
       file=__FILE__)) &
@@ -557,33 +559,13 @@ module fv3_shield_cap
       file=__FILE__)) &
       return  ! bail out
 
-    !------------------
-    ! Print the new time after model timestep
-    !------------------
-    call ESMF_TimePrint(currTime + timeStep, &
-      preString="---------------------> to: ", unit=msgString, rc=rc)
-    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-      line=__LINE__, &
-      file=__FILE__)) &
-      return  ! bail out
-
-    !------------------
-    ! Write to log
-    !------------------
-    call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO, rc=rc)
-    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
-      line=__LINE__, &
-      file=__FILE__)) &
-      return  ! bail out
-
-
     !-----------------------------------------
     ! FV3-SHiELD model advance routines:
     !-----------------------------------------
     
     ! Start insert
     if (dodebug) print *, "fv3_shield_cap:: model time stepping..."
-    Time_atmos = Time_atmos + Time_step_atmos  !STEVE: replace with NUOPC clock
+!   Time_atmos = Time_atmos + Time_step_atmos  !STEVE: replace with NUOPC clock
     if (dodebug) print *, "fv3_shield_cap:: calling update_atmos_model_dynamics..."
     call update_atmos_model_dynamics (Atm)
     if (dodebug) print *, "fv3_shield_cap:: calling update_atmos_radiation_physics..."
@@ -621,6 +603,27 @@ module fv3_shield_cap
     endif
 
     call print_memuse_stats('after full step')
+
+    !------------------
+    ! Print the new time after model timestep
+    !------------------
+    call ESMF_TimePrint(currTime + timeStep, &
+      preString="---------------------> to: ", unit=msgString, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+
+    !------------------
+    ! Write to log
+    !------------------
+    call ESMF_LogWrite(msgString, ESMF_LOGMSG_INFO, rc=rc)
+    if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
+      line=__LINE__, &
+      file=__FILE__)) &
+      return  ! bail out
+
+
       
   end subroutine
 
@@ -769,6 +772,12 @@ module fv3_shield_cap
 
     if (dodebug) print *, "fv3_shield_cap::coupler_init:: calling set_calendar_type..."
     call set_calendar_type (calendar_type)
+
+
+    !STEVE: Replace the input date/time with the NUOPC-ESMF date/time here:
+    ! date = year, month, day, hour, min, sec
+    ! date = 
+    ! date_init = 
 
     !----- write current/initial date actually used to logfile file -----
 
