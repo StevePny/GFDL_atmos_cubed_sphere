@@ -270,7 +270,7 @@ module MED
       return  ! bail out
 
     ! exportable field: eastward_wind_at_10m_height
-    field = ESMF_FieldCreate(name="u10m", grid=gridOut, &
+    field = ESMF_FieldCreate(name="u10m", grid=grid_atmos, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
@@ -283,7 +283,7 @@ module MED
       return  ! bail out
       
     ! exportable field: northward_wind_at_10m_height
-    field = ESMF_FieldCreate(name="v10m", grid=gridOut, &
+    field = ESMF_FieldCreate(name="v10m", grid=grid_atmos, &
       typekind=ESMF_TYPEKIND_R8, rc=rc)
     if (ESMF_LogFoundError(rcToCheck=rc, msg=ESMF_LOGERR_PASSTHRU, &
       line=__LINE__, &
